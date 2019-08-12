@@ -72,25 +72,29 @@ library(future)
 library(furrr)
 plan(multiprocess(workers = 6))
 
-# takes ~ 10+ minutes on my machine
+# takes ~ 18+ minutes with 6 cores
 system.time({
   result <- priors %>%
     group_split(setting) %>% 
-    future_map(run_model)
+    future_map(run_model, .progress = TRUE)
 })
 
 
+
 result_summary = result %>% 
-  map_df(function(x) select(data.frame(x), mean, sd)) %>% 
-  bind_cols(priors, .) %>% 
+  map(function(x) x['mu', c('mean', 'sd')]) %>% 
+  do.call(rbind, .) %>% # still works better than map, map_df, etc.
+  cbind(priors, .) %>% 
+  data.frame() %>% 
   mutate(ratio = sd/sigmas,
          sensitive = ratio > .1) %>% 
   arrange(sigmas)
 
+save(result, result_summary, file = 'results.RData')
 
 result_summary %>% 
   ggplot() +
-  geom_tile(aes(x = as.factor(mus), y = as.factor(sigmas), fill = ratio)) +
+  geom_tile(aes(x = as.factor(mus), y = as.factor(sigmas), fill = log(ratio))) +
   scico::scale_fill_scico() +
   labs(x = 'mu', y = 'sigma') + 
   visibly::theme_clean()
