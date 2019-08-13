@@ -82,21 +82,15 @@ system.time({
 
 
 result_summary = result %>% 
-  map(function(x) x['mu', c('mean', 'sd')]) %>% 
+  map(function(x) x['mu', c('mean', 'sd', 'n_eff', 'Rhat')]) %>% 
   do.call(rbind, .) %>% # still works better than map, map_df, etc.
   cbind(priors, .) %>% 
   data.frame() %>% 
-  mutate(ratio = sd/sigmas,
-         sensitive = ratio > .1) %>% 
+  mutate(
+    ratio = sd/sigmas,
+    sensitive = ratio > .1
+  ) %>% 
   arrange(sigmas)
 
 save(result, result_summary, file = 'results.RData')
-
-result_summary %>% 
-  ggplot() +
-  geom_tile(aes(x = as.factor(mus), y = as.factor(sigmas), fill = log(ratio))) +
-  scico::scale_fill_scico() +
-  labs(x = 'mu', y = 'sigma') + 
-  visibly::theme_clean()
-
 
