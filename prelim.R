@@ -3,10 +3,12 @@ library(tidyverse)
 
 # create data settings
 sigmas = c(1:5, 10, 25, 50, 75, 100)
-mus = c(0, 1:5, 10, 25, 50, 100)
+mus = c(0, 1, 5, 10, 25, 50, 100)
+N = c(10, 25, 50, 100)
+nrow(priors)
 
-priors = crossing(mus, sigmas) %>% 
-  mutate(setting = glue::glue("mu = {mus} sigma = {sigmas}")) %>% 
+priors = crossing(mus, sigmas, N) %>% 
+  mutate(setting = glue::glue("mu = {mus} sigma = {sigmas} N = {N}")) %>% 
   data.frame()
 
 
@@ -31,13 +33,17 @@ model {
 
 # function to run models
 
-run_model = function(data_settings) {
-  model <- stan_model(model_code = model_string)
-  y <- rnorm(10)
+run_model = function(
+  data_settings, 
+  model, 
+  verbose = TRUE,
+  ...
+  ) {
+  data_settings = unlist(data_settings[1:3])
   
-  data_settings = unlist(data_settings[1:2])
   mu_mu = data_settings[1]
   sigma_mu = data_settings[2]
+  y <- rnorm(data_settings[3])
   
   data <- list(
     N = length(y),
@@ -49,48 +55,70 @@ run_model = function(data_settings) {
   fit <- sampling(
     model,
     data,
-    iter = 1e5,
-    cores = 1,
     refresh = 0,
-    control = list(adapt_delta = .99),
-    seed = 8675309
+    seed = 8675309, 
+    ...
   )
   
   print(sprintf("mu_mu = %10.5f  sigma_mu = %10.5f", mu_mu, sigma_mu), quote = FALSE)
   print(fit, prob = c(), digits = 4, pars = c("mu", "sigma"))
   
-  summary(fit)$summary
+  fit
 }
 
 # testing
-# library(rstan)
-# test = apply(priors[1:2, 1:2], 1, run_model)
+library(rstan)
+# debugonce(run_model)
+# 
+init_model <- stan_model(model_code = model_string)
+# 
+# run_model(priors[1, , drop = F], model = init_model)
 
 
 library(rstan)
 library(future)
 library(furrr)
-plan(multiprocess(workers = 6))
 
-# takes ~ 18+ minutes with 6 cores
+plan(multiprocess(workers = 10))
+
+# takes ~ 1
 system.time({
-  result <- priors %>%
+  results_raw <- priors %>%
     group_split(setting) %>% 
-    future_map(run_model, .progress = TRUE)
+    future_map(run_model, 
+               model = stan_model(model_code = model_string),
+               verbose = FALSE,
+               iter = 1e4,
+               thin = 20,      # to reduce size (1e4/2/20*4 = 1k post warmup)
+               control = list(
+                 adapt_delta = .99, 
+                 max_treedepth = 15
+               ),
+               .progress = TRUE)
 })
 
 
+names(results_raw) = priors$setting
+plan(sequential)
 
-result_summary = result %>% 
-  map(function(x) x['mu', c('mean', 'sd', 'n_eff', 'Rhat')]) %>% 
-  do.call(rbind, .) %>% # still works better than map, map_df, etc.
-  cbind(priors, .) %>% 
-  data.frame() %>% 
+
+clean_up = function(raw_result) {
+  summary(raw_result)$summary %>% 
+    as_tibble(rownames = 'parameter')
+}
+
+results_summaries = results_raw %>% 
+  map_df(clean_up, .id = 'setting')
+
+
+results_clean = results_summaries %>% 
+  left_join(priors) %>% 
   mutate(
     ratio = sd/sigmas,
     sensitive = ratio > .1
   ) %>% 
   arrange(sigmas)
 
-save(result, result_summary, file = 'results.RData')
+save(results_raw, file = 'results_raw.RData')
+save(results_summaries, results_clean, file = 'results_summaries.RData')
 
