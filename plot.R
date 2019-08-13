@@ -32,8 +32,9 @@ mus %>%
   mutate(Z = abs((mean - mus) / sigmas)) %>%
   ggplot() +
   geom_hline(aes(yintercept = .1), alpha = .25) +
-  geom_point(aes(Z, ratio, size = N), color = "#ff5500", alpha = .05) +
+  geom_point(aes(Z, ratio, size = N, alpha = .1), color = "#ff5500") +
   scale_size_continuous(range = c(1, 4), trans = 'reverse') +
+  scale_alpha(range = .1, guide = 'none') +
   theme_clean()
 ggsave('z_vs_ratio.png')
 
